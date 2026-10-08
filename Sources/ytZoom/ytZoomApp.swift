@@ -211,6 +211,8 @@ struct BrowserWindow: View {
                 .frame(width: 135)
                 .help(mode.explanation)
 
+                playbackMenu
+
                 Button { darkMode.toggle() } label: {
                     Image(systemName: darkMode ? "sun.max" : "moon")
                 }
@@ -253,8 +255,6 @@ struct BrowserWindow: View {
                 .background(Color.orange.opacity(0.13))
             }
 
-            playbackToolbar
-
             Group {
                 if browser.unloaded {
                     VStack(spacing: 12) {
@@ -289,40 +289,33 @@ struct BrowserWindow: View {
         }
     }
 
-    private var playbackToolbar: some View {
-        HStack(spacing: 12) {
-            Button { browser.controlPlayback("backward") } label: {
-                Image(systemName: "gobackward.10")
-            }.help("Seek back 10 seconds (Command-Left)")
+    private var playbackMenu: some View {
+        Menu {
+            Button("Seek back 10 seconds") { browser.controlPlayback("backward") }
                 .keyboardShortcut(.leftArrow, modifiers: .command)
                 .disabled(browser.unloaded)
-            Button { browser.controlPlayback("toggle") } label: {
-                Image(systemName: "playpause")
-            }.help("Play or pause (Command-P)")
+            Button("Play or pause") { browser.controlPlayback("toggle") }
                 .keyboardShortcut("p", modifiers: .command)
                 .disabled(browser.unloaded)
-            Button { browser.controlPlayback("forward") } label: {
-                Image(systemName: "goforward.10")
-            }.help("Seek forward 10 seconds (Command-Right)")
+            Button("Seek forward 10 seconds") { browser.controlPlayback("forward") }
                 .keyboardShortcut(.rightArrow, modifiers: .command)
                 .disabled(browser.unloaded)
-            Picker("Speed", selection: $playbackRate) {
+            Picker("Playback speed", selection: $playbackRate) {
                 ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0], id: \.self) { rate in
                     Text("\(rate.formatted())×").tag(rate)
                 }
-            }.frame(width: 130)
-                .disabled(browser.unloaded)
+            }
             Toggle("Pause when hidden", isOn: $pauseWhenHidden)
-                .help("Pause media when ytZoom is hidden or minimized. Resume manually.")
-            Spacer()
+            Divider()
             Button(browser.unloaded ? "Resume page" : "Unload page", action: browser.toggleUnload)
-                .help("Unload releases the page and clears navigation history. Resume reloads the last URL.")
+        } label: {
+            Image(systemName: "ellipsis.circle")
         }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Playback options")
     }
+
 }
 
 struct YouTubeWebView: NSViewRepresentable {
@@ -514,7 +507,11 @@ struct YouTubeWebView: NSViewRepresentable {
 
         func installScripts(in controller: WKUserContentController) {
             controller.removeAllUserScripts()
-            controller.addUserScript(WKUserScript(source: PlaybackScript.source + "\n" + settingsScript,
+            controller.addUserScript(WKUserScript(source: WatchPolicyScript.bootstrap,
+                                                  injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            let source = PlaybackScript.source + "\n" + settingsScript + "\n" +
+                         WatchPolicyScript.bootstrap + "\n" + WatchPolicyScript.source
+            controller.addUserScript(WKUserScript(source: source,
                                                   injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         }
 

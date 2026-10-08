@@ -18,7 +18,7 @@ jobs:
         with:
           node-version: '22'
       - name: Verify playback integration
-        run: node --test Tests/playback.test.mjs
+        run: node --test Tests/*.test.mjs
       - name: Compile native app
         run: |
           set -euo pipefail

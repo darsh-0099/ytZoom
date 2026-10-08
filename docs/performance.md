@@ -19,9 +19,14 @@ Repeat each scenario at least three times and report the median and range. This 
 ## Functional checks on macOS
 
 - Hide with Command-H and minimize with Command-M. With Pause when hidden enabled, audio stops and remains paused on return. With the option disabled, background listening continues according to YouTube/WebKit behavior.
-- Change speed, then navigate within YouTube to another video. The saved speed applies to the new player. Confirm normal playback, ads, fullscreen, and live streams still work.
+- Open Playback options (the ellipsis button) and change speed, then navigate within YouTube to another video. The saved speed applies to the new player. Confirm normal playback, ads, fullscreen, and live streams still work.
 - Seek near the start/end of an ordinary video and the edge of a live DVR window. Confirm seeking stays inside the seekable range.
 - Switch Balanced → Eco → Compatibility while a preview is playing. Compatibility removes injected styles and allows future previews; stopped previews are not forcibly restarted.
 - Unload during playback and during navigation. Confirm the page is removed, audio stops, and no stale navigation errors appear. Resume, search, and Home should load the expected address. Cookies remain available; back/forward history and playback position reset.
 - Close/reopen the window and quit/relaunch. Confirm stored mode, background option, and speed persist. The app offers one browsing window.
 - Visit a Google sign-in page or an unrelated address. Playback scripts should have no effect there.
+
+- Open a live stream and a video with chat replay. Chat should remain collapsed until Show chat is clicked. Closing it and playing a different video should restore the collapsed default.
+- Start a watch video from Home, search results, recommendations, a playlist, and a pasted URL. It should enter theatre mode. Manually switch modes within that video; the app should leave that choice intact until the next video.
+- Enter miniplayer, browse Home or search, and select a different video. The replacement should stay in miniplayer. Repeat when YouTube briefly expands the player during navigation, and using a pasted URL while miniplayer is active.
+- Confirm the extra playback row is gone and its controls remain accessible through the Playback options menu and keyboard shortcuts.
