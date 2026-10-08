@@ -10,6 +10,7 @@ The project explores whether avoiding a full standalone browser framework and re
 - One app window and one WKWebView, with saved website data and cookies
 - Unload/resume page control to release the web view during long idle periods
 - Optional pause when hidden or minimized, without automatic playback on return
+- One-click dark/light appearance toggle for the toolbar and YouTube, saved between launches (Command-Shift-D)
 - Saved playback speed from 0.5× to 2×, play/pause, and 10-second seeking
 - Three display modes: **Balanced**, **Eco**, and **Compatibility**
 - Keyboard shortcuts: Command-L, Command-R, Command-[, Command-], Command-P (play/pause), and Command-Left/Right (seek)

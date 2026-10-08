@@ -142,6 +142,7 @@ struct BrowserWindow: View {
     @AppStorage("ytzoom.mode") private var modeSetting = PerformanceMode.balanced.rawValue
     @AppStorage("ytzoom.pauseWhenHidden") private var pauseWhenHidden = false
     @AppStorage("ytzoom.playbackRate") private var playbackRate = 1.0
+    @AppStorage("ytzoom.darkMode") private var darkMode = false
     @State private var addressInput = BrowserModel.homeURL.absoluteString
     @FocusState private var addressFocused: Bool
     private var mode: PerformanceMode {
@@ -210,6 +211,13 @@ struct BrowserWindow: View {
                 .frame(width: 135)
                 .help(mode.explanation)
 
+                Button { darkMode.toggle() } label: {
+                    Image(systemName: darkMode ? "sun.max" : "moon")
+                }
+                .help(darkMode ? "Switch to light mode" : "Switch to dark mode")
+                .accessibilityLabel(darkMode ? "Switch to light mode" : "Switch to dark mode")
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+
                 Button(action: browser.openInBrowser) {
                     Image(systemName: "safari")
                 }.help("Open in default browser")
@@ -258,7 +266,8 @@ struct BrowserWindow: View {
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     YouTubeWebView(browser: browser, mode: mode,
-                                   playbackRate: playbackRate, pauseWhenHidden: pauseWhenHidden)
+                                   playbackRate: playbackRate, pauseWhenHidden: pauseWhenHidden,
+                                   darkMode: darkMode)
                 }
             }
             .frame(minWidth: 800, minHeight: 380)
@@ -274,6 +283,7 @@ struct BrowserWindow: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
         }
+        .preferredColorScheme(darkMode ? .dark : .light)
         .onReceive(browser.$address) { newAddress in
             if !addressFocused { addressInput = newAddress }
         }
@@ -320,6 +330,7 @@ struct YouTubeWebView: NSViewRepresentable {
     let mode: PerformanceMode
     let playbackRate: Double
     let pauseWhenHidden: Bool
+    let darkMode: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(browser: browser)
@@ -333,8 +344,10 @@ struct YouTubeWebView: NSViewRepresentable {
         context.coordinator.mode = mode
         context.coordinator.playbackRate = playbackRate
         context.coordinator.pauseWhenHidden = pauseWhenHidden
+        context.coordinator.darkMode = darkMode
         context.coordinator.installScripts(in: configuration.userContentController)
         let view = WKWebView(frame: .zero, configuration: configuration)
+        view.appearance = NSAppearance(named: darkMode ? .darkAqua : .aqua)
         view.navigationDelegate = context.coordinator
         view.uiDelegate = context.coordinator
         view.allowsBackForwardNavigationGestures = true
@@ -347,10 +360,12 @@ struct YouTubeWebView: NSViewRepresentable {
     func updateNSView(_ view: WKWebView, context: Context) {
         let coordinator = context.coordinator
         if coordinator.mode != mode || coordinator.playbackRate != playbackRate ||
-            coordinator.pauseWhenHidden != pauseWhenHidden {
+            coordinator.pauseWhenHidden != pauseWhenHidden || coordinator.darkMode != darkMode {
             coordinator.mode = mode
             coordinator.playbackRate = playbackRate
             coordinator.pauseWhenHidden = pauseWhenHidden
+            coordinator.darkMode = darkMode
+            view.appearance = NSAppearance(named: darkMode ? .darkAqua : .aqua)
             coordinator.installScripts(in: view.configuration.userContentController)
             coordinator.applySettings(to: view)
             coordinator.pauseIfHidden(view)
@@ -374,6 +389,7 @@ struct YouTubeWebView: NSViewRepresentable {
         var mode: PerformanceMode = .balanced
         var playbackRate = 1.0
         var pauseWhenHidden = false
+        var darkMode = false
         var observations: [NSKeyValueObservation] = []
         var notifications: [NSObjectProtocol] = []
 
@@ -490,7 +506,7 @@ struct YouTubeWebView: NSViewRepresentable {
         private var settingsScript: String {
             let settings: [String: Any] = ["css": mode.css, "rate": playbackRate,
                                            "pauseWhenHidden": pauseWhenHidden,
-                                           "suppressPreviews": mode != .compatibility]
+                                           "suppressPreviews": mode != .compatibility, "darkMode": darkMode]
             guard let data = try? JSONSerialization.data(withJSONObject: settings),
                   let json = String(data: data, encoding: .utf8) else { return "" }
             return "window.__ytzoom?.configure(\(json));"

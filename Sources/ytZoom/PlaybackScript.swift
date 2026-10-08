@@ -5,7 +5,7 @@ enum PlaybackScript {
       const host = location.hostname.toLowerCase();
       if (!(host === 'youtube.com' || host.endsWith('.youtube.com'))) return;
       if (window.__ytzoom) return;
-      let settings = { css: '', rate: 1, pauseWhenHidden: false, suppressPreviews: false };
+      let settings = { css: '', rate: 1, pauseWhenHidden: false, suppressPreviews: false, darkMode: false };
       const playerVideo = () => document.querySelector('#movie_player video');
       const isPlayer = video => video && video === playerVideo();
       const applyRate = video => {
@@ -20,13 +20,19 @@ enum PlaybackScript {
       const pauseHidden = video => {
         if (settings.pauseWhenHidden && document.hidden && isPlayer(video)) video.pause();
       };
+      const applyAppearance = () => {
+        document.documentElement.toggleAttribute('dark', settings.darkMode);
+        document.documentElement.style.colorScheme = settings.darkMode ? 'dark' : 'light';
+      };
       const configure = next => {
         settings = {
           css: typeof next.css === 'string' ? next.css : '',
           rate: [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].includes(next.rate) ? next.rate : 1,
           pauseWhenHidden: next.pauseWhenHidden === true,
-          suppressPreviews: next.suppressPreviews === true
+          suppressPreviews: next.suppressPreviews === true,
+          darkMode: next.darkMode === true
         };
+        applyAppearance();
         let style = document.getElementById('ytzoom-style');
         if (!settings.css) {
           if (style) style.remove();
@@ -79,6 +85,7 @@ enum PlaybackScript {
       }, true);
       document.addEventListener('visibilitychange', () => pauseHidden(playerVideo()));
       document.addEventListener('yt-navigate-finish', () => {
+        applyAppearance();
         applyRate(playerVideo());
         pauseHidden(playerVideo());
       });

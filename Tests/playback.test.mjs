@@ -17,6 +17,7 @@ function page(host = 'www.youtube.com') {
   let currentVideo = video;
   const document = {
     hidden: false,
+    documentElement: { style: {}, toggleAttribute() {} },
     querySelector: () => currentVideo,
     querySelectorAll: () => [],
     getElementById: id => styles.get(id),
