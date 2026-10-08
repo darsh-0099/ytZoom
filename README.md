@@ -7,9 +7,15 @@ The project explores whether avoiding a full standalone browser framework and re
 ## Features
 
 - Native macOS window with history, home, reload, URL/search field, and system-browser handoff
-- One persistent WKWebView with saved website data and cookies
+- One app window and one WKWebView, with saved website data and cookies
+- Unload/resume page control to release the web view during long idle periods
+- Optional pause when hidden or minimized, without automatic playback on return
+- One-click dark/light appearance toggle for the toolbar and YouTube, saved between launches (Command-Shift-D)
+- Compact playback menu with saved speed from 0.5× to 2×, play/pause, 10-second seeking, background pause, and unload/resume
+- Videos default to theatre mode; selecting a new video while using miniplayer preserves miniplayer
+- Live chat and replay stay collapsed until Show chat is clicked, resetting for each video
 - Three display modes: **Balanced**, **Eco**, and **Compatibility**
-- Keyboard shortcuts: Command-L, Command-R, Command-[, and Command-]
+- Keyboard shortcuts: Command-L, Command-R, Command-[, Command-], Command-P (play/pause), and Command-Left/Right (seek)
 - Intel macOS 13 Ventura and newer
 - No third-party application dependencies
 
@@ -17,11 +23,17 @@ The project explores whether avoiding a full standalone browser framework and re
 
 | Mode | Behavior |
 | --- | --- |
-| Balanced | Hide selected animated thumbnail previews |
+| Balanced | Hide and pause selected animated thumbnail previews |
 | Eco | Also reduce some non-player interface transitions |
 | Compatibility | Leave YouTube's webpage styling unchanged |
 
-These modes make cosmetic changes only. They do not replace the YouTube player, disable website scripts, or guarantee lower CPU or RAM usage.
+Balanced and Eco pause video elements in recognized thumbnail preview containers when they start playing, as well as hiding those containers. Eco also reduces selected interface motion. Compatibility removes the preview/style adjustments; playback controls and the independently selected background pause option remain available. These modes do not replace the YouTube player or disable website scripts.
+
+**Pause when hidden** is off by default so background listening keeps working. Enable it to pause when the app is hidden, minimized, or WebKit reports the page as hidden. Returning to the window leaves playback paused until manually resumed. This pauses media rather than suspending all website work.
+
+**Unload page**, available in the toolbar’s Playback options menu, stops media and navigation, detaches observers, and destroys the web view. Resume creates a new view at the last address using the same persistent cookies and website data. Navigation history, playback position, and unsaved page state are reset. Searching or choosing Home while unloaded also resumes the page. WebKit decides when to reclaim helper-process memory, so memory usage may not fall immediately.
+
+No particular CPU or RAM reduction is guaranteed; measure the whole app and its WebKit processes on the target device.
 
 ## Download
 
@@ -42,7 +54,20 @@ Source files are in Sources/ytZoom. Developers with a compatible Swift toolchain
 - SwiftUI provides the desktop toolbar, modes, navigation, and search.
 - WebKit loads the standard YouTube website in one persistent web view.
 - Standard WebKit website storage preserves cookies and preferences.
-- A small CSS adjustment minimizes selected preview/transition effects.
+- Native state changes are coalesced per main queue turn; unchanged values do not trigger UI publication.
+- Playback integration uses media and navigation events without polling. Watch-page controls use a filtered discovery observer and bounded startup retries for at most 10 seconds, confirming the requested layout before stopping. Scoped attribute observation handles reused player elements; only chat observation remains after the layout is confirmed.
+- One document-end script applies saved settings, and mode changes update it for future navigation.
+- Teardown stops playback/loading and removes KVO, notification observers, and user scripts.
+
+## Validation
+
+Run the dependency-free playback regression tests with Node.js 22 or newer:
+
+    node --test Tests/*.test.mjs
+
+The tests execute the JavaScript embedded in the Swift source and cover preview pausing, style cleanup, speed persistence across media replacement, background pause behavior, seeking boundaries, chat consent, theatre/miniplayer transitions, delayed controls, and script lifecycle. They use DOM/media fixtures; they do not validate the live YouTube website or native window behavior. The Verify workflow also compiles the Intel app with a macOS SDK.
+
+For device checks and a repeatable resource measurement procedure, see [Performance validation](docs/performance.md).
 
 ## Limitations
 
