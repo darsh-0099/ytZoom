@@ -6,7 +6,7 @@ import WebKit
 @main
 struct ytZoomApp: App {
     var body: some Scene {
-        WindowGroup("ytZoom") {
+        Window("ytZoom", id: "main") {
             BrowserWindow()
         }
         .defaultSize(width: 1180, height: 760)
@@ -20,8 +20,8 @@ enum PerformanceMode: String, CaseIterable, Identifiable {
 
     var explanation: String {
         switch self {
-        case .balanced: return "Hide animated thumbnail previews."
-        case .eco: return "Reduce previews and selected interface motion."
+        case .balanced: return "Hide and pause animated thumbnail previews."
+        case .eco: return "Pause previews and reduce selected interface motion."
         case .compatibility: return "Use YouTube's original page styling."
         }
     }
@@ -53,24 +53,64 @@ final class BrowserModel: ObservableObject {
     @Published private(set) var canForward = false
     @Published var errorMessage: String?
 
+    @Published private(set) var unloaded = false
+    private(set) var resumeURL = homeURL
+    private var updatePending = false
     weak var webView: WKWebView?
 
     func update(from view: WKWebView) {
-        DispatchQueue.main.async { [weak self, weak view] in
-            guard let self = self, let view = view else { return }
-            self.address = view.url?.absoluteString ?? Self.homeURL.absoluteString
-            self.loading = view.isLoading
-            self.progress = view.estimatedProgress
-            self.canBack = view.canGoBack
-            self.canForward = view.canGoForward
+        guard webView === view, !updatePending else { return }
+        updatePending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.updatePending = false
+            guard let view = self.webView, !self.unloaded else { return }
+            let address = view.url?.absoluteString ?? Self.homeURL.absoluteString
+            if self.address != address { self.address = address }
+            if self.loading != view.isLoading { self.loading = view.isLoading }
+            // Progress only needs percent precision; avoid redraws for tiny changes.
+            let progress = (view.estimatedProgress * 100).rounded() / 100
+            if self.progress != progress { self.progress = progress }
+            if self.canBack != view.canGoBack { self.canBack = view.canGoBack }
+            if self.canForward != view.canGoForward { self.canForward = view.canGoForward }
         }
     }
 
-    func goHome() { webView?.load(URLRequest(url: Self.homeURL)) }
+    func toggleUnload() {
+        if unloaded {
+            unloaded = false
+        } else {
+            resumeURL = webView?.url ?? Self.homeURL
+            webView?.pauseAllMediaPlayback(completionHandler: nil)
+            webView?.stopLoading()
+            unloaded = true
+            loading = false
+            canBack = false
+            canForward = false
+            errorMessage = nil
+        }
+    }
+
+    func controlPlayback(_ command: String) {
+        guard ["toggle", "backward", "forward"].contains(command) else { return }
+        webView?.evaluateJavaScript("window.__ytzoom?.command('\(command)')", completionHandler: nil)
+    }
+
+    private func load(_ url: URL) {
+        errorMessage = nil
+        if unloaded {
+            resumeURL = url
+            unloaded = false
+        } else {
+            webView?.load(URLRequest(url: url))
+        }
+    }
+
+    func goHome() { load(Self.homeURL) }
     func goBack() { webView?.goBack() }
     func goForward() { webView?.goForward() }
-    func reload() { webView?.reload() }
-    func openInBrowser() { NSWorkspace.shared.open(webView?.url ?? Self.homeURL) }
+    func reload() { if unloaded { unloaded = false } else { webView?.reload() } }
+    func openInBrowser() { NSWorkspace.shared.open(webView?.url ?? (unloaded ? resumeURL : Self.homeURL)) }
 
     func navigate(_ raw: String) {
         let input = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -93,13 +133,15 @@ final class BrowserModel: ObservableObject {
             errorMessage = "Could not open that address."
             return
         }
-        webView?.load(URLRequest(url: url))
+        load(url)
     }
 }
 
 struct BrowserWindow: View {
     @StateObject private var browser = BrowserModel()
     @AppStorage("ytzoom.mode") private var modeSetting = PerformanceMode.balanced.rawValue
+    @AppStorage("ytzoom.pauseWhenHidden") private var pauseWhenHidden = false
+    @AppStorage("ytzoom.playbackRate") private var playbackRate = 1.0
     @State private var addressInput = BrowserModel.homeURL.absoluteString
     @FocusState private var addressFocused: Bool
     private var mode: PerformanceMode {
@@ -203,8 +245,23 @@ struct BrowserWindow: View {
                 .background(Color.orange.opacity(0.13))
             }
 
-            YouTubeWebView(browser: browser, mode: mode)
-                .frame(minWidth: 600, minHeight: 380)
+            playbackToolbar
+
+            Group {
+                if browser.unloaded {
+                    VStack(spacing: 12) {
+                        Image(systemName: "leaf").font(.largeTitle)
+                        Text("Page unloaded")
+                        Text("Resume reloads the last address. Navigation history and playback position are reset.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button("Resume page", action: browser.toggleUnload)
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    YouTubeWebView(browser: browser, mode: mode,
+                                   playbackRate: playbackRate, pauseWhenHidden: pauseWhenHidden)
+                }
+            }
+            .frame(minWidth: 800, minHeight: 380)
 
             HStack {
                 Text("\(mode.label) mode").fontWeight(.semibold)
@@ -221,11 +278,48 @@ struct BrowserWindow: View {
             if !addressFocused { addressInput = newAddress }
         }
     }
+
+    private var playbackToolbar: some View {
+        HStack(spacing: 12) {
+            Button { browser.controlPlayback("backward") } label: {
+                Image(systemName: "gobackward.10")
+            }.help("Seek back 10 seconds (Command-Left)")
+                .keyboardShortcut(.leftArrow, modifiers: .command)
+                .disabled(browser.unloaded)
+            Button { browser.controlPlayback("toggle") } label: {
+                Image(systemName: "playpause")
+            }.help("Play or pause (Command-P)")
+                .keyboardShortcut("p", modifiers: .command)
+                .disabled(browser.unloaded)
+            Button { browser.controlPlayback("forward") } label: {
+                Image(systemName: "goforward.10")
+            }.help("Seek forward 10 seconds (Command-Right)")
+                .keyboardShortcut(.rightArrow, modifiers: .command)
+                .disabled(browser.unloaded)
+            Picker("Speed", selection: $playbackRate) {
+                ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0], id: \.self) { rate in
+                    Text("\(rate.formatted())×").tag(rate)
+                }
+            }.frame(width: 130)
+                .disabled(browser.unloaded)
+            Toggle("Pause when hidden", isOn: $pauseWhenHidden)
+                .help("Pause media when ytZoom is hidden or minimized. Resume manually.")
+            Spacer()
+            Button(browser.unloaded ? "Resume page" : "Unload page", action: browser.toggleUnload)
+                .help("Unload releases the page and clears navigation history. Resume reloads the last URL.")
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+
+    }
 }
 
 struct YouTubeWebView: NSViewRepresentable {
     @ObservedObject var browser: BrowserModel
     let mode: PerformanceMode
+    let playbackRate: Double
+    let pauseWhenHidden: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(browser: browser)
@@ -236,46 +330,70 @@ struct YouTubeWebView: NSViewRepresentable {
         configuration.websiteDataStore = .default()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
 
+        context.coordinator.mode = mode
+        context.coordinator.playbackRate = playbackRate
+        context.coordinator.pauseWhenHidden = pauseWhenHidden
+        context.coordinator.installScripts(in: configuration.userContentController)
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.uiDelegate = context.coordinator
         view.allowsBackForwardNavigationGestures = true
-        context.coordinator.mode = mode
         context.coordinator.watch(view)
         browser.webView = view
-        view.load(URLRequest(url: BrowserModel.homeURL))
+        view.load(URLRequest(url: browser.resumeURL))
         return view
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
-        if context.coordinator.mode != mode {
-            context.coordinator.mode = mode
-            context.coordinator.applyStyle(to: view)
+        let coordinator = context.coordinator
+        if coordinator.mode != mode || coordinator.playbackRate != playbackRate ||
+            coordinator.pauseWhenHidden != pauseWhenHidden {
+            coordinator.mode = mode
+            coordinator.playbackRate = playbackRate
+            coordinator.pauseWhenHidden = pauseWhenHidden
+            coordinator.installScripts(in: view.configuration.userContentController)
+            coordinator.applySettings(to: view)
+            coordinator.pauseIfHidden(view)
         }
     }
 
     static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
+        view.pauseAllMediaPlayback(completionHandler: nil)
+        view.stopLoading()
         coordinator.observations.removeAll()
+        coordinator.notifications.forEach { NotificationCenter.default.removeObserver($0) }
+        coordinator.notifications.removeAll()
+        view.configuration.userContentController.removeAllUserScripts()
         view.navigationDelegate = nil
         view.uiDelegate = nil
-        coordinator.browser.webView = nil
+        if coordinator.browser.webView === view { coordinator.browser.webView = nil }
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let browser: BrowserModel
         var mode: PerformanceMode = .balanced
+        var playbackRate = 1.0
+        var pauseWhenHidden = false
         var observations: [NSKeyValueObservation] = []
+        var notifications: [NSObjectProtocol] = []
 
         init(browser: BrowserModel) {
             self.browser = browser
         }
 
         func watch(_ view: WKWebView) {
+            for name in [NSApplication.didHideNotification, NSWindow.didMiniaturizeNotification] {
+                let token = NotificationCenter.default.addObserver(forName: name, object: nil,
+                                                                  queue: .main) { [weak self, weak view] note in
+                    guard let self = self, let view = view else { return }
+                    if name == NSWindow.didMiniaturizeNotification,
+                       (note.object as? NSWindow) !== view.window { return }
+                    self.pauseIfHidden(view)
+                }
+                notifications.append(token)
+            }
             observations = [
                 view.observe(\.url, options: [.new]) { [weak self, weak view] _, _ in
-                    self?.refresh(view)
-                },
-                view.observe(\.title, options: [.new]) { [weak self, weak view] _, _ in
                     self?.refresh(view)
                 },
                 view.observe(\.isLoading, options: [.new]) { [weak self, weak view] _, _ in
@@ -300,7 +418,8 @@ struct YouTubeWebView: NSViewRepresentable {
         func webView(_ view: WKWebView, didFinish navigation: WKNavigation!) {
             browser.errorMessage = nil
             browser.update(from: view)
-            applyStyle(to: view)
+            applySettings(to: view)
+            pauseIfHidden(view)
         }
 
         func webView(_ view: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -315,7 +434,8 @@ struct YouTubeWebView: NSViewRepresentable {
         private func show(_ error: Error) {
             guard (error as NSError).code != NSURLErrorCancelled else { return }
             DispatchQueue.main.async { [weak self] in
-                self?.browser.errorMessage = error.localizedDescription
+                guard let self = self, self.browser.webView != nil, !self.browser.unloaded else { return }
+                self.browser.errorMessage = error.localizedDescription
             }
         }
 
@@ -362,23 +482,28 @@ struct YouTubeWebView: NSViewRepresentable {
             return nil
         }
 
-        func applyStyle(to view: WKWebView) {
-            guard let data = try? JSONSerialization.data(withJSONObject: [mode.css]),
-                  let cssJSON = String(data: data, encoding: .utf8) else { return }
-            let script = """
-            (() => {
-              const css = \(cssJSON)[0];
-              let style = document.getElementById('ytzoom-style');
-              if (!css) { if (style) style.remove(); return; }
-              if (!style) {
-                style = document.createElement('style');
-                style.id = 'ytzoom-style';
-                (document.head || document.documentElement).appendChild(style);
-              }
-              style.textContent = css;
-            })();
-            """
-            view.evaluateJavaScript(script, completionHandler: nil)
+        func pauseIfHidden(_ view: WKWebView) {
+            guard pauseWhenHidden, NSApp.isHidden || view.window?.isMiniaturized == true else { return }
+            view.pauseAllMediaPlayback(completionHandler: nil)
+        }
+
+        private var settingsScript: String {
+            let settings: [String: Any] = ["css": mode.css, "rate": playbackRate,
+                                           "pauseWhenHidden": pauseWhenHidden,
+                                           "suppressPreviews": mode != .compatibility]
+            guard let data = try? JSONSerialization.data(withJSONObject: settings),
+                  let json = String(data: data, encoding: .utf8) else { return "" }
+            return "window.__ytzoom?.configure(\(json));"
+        }
+
+        func installScripts(in controller: WKUserContentController) {
+            controller.removeAllUserScripts()
+            controller.addUserScript(WKUserScript(source: PlaybackScript.source + "\n" + settingsScript,
+                                                  injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        }
+
+        func applySettings(to view: WKWebView) {
+            view.evaluateJavaScript(settingsScript, completionHandler: nil)
         }
     }
 }
