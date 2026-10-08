@@ -30,3 +30,5 @@ Repeat each scenario at least three times and report the median and range. This 
 - Start a watch video from Home, search results, recommendations, a playlist, and a pasted URL. It should enter theatre mode. Manually switch modes within that video; the app should leave that choice intact until the next video.
 - Enter miniplayer, browse Home or search, and select a different video. The replacement should stay in miniplayer. Repeat when YouTube briefly expands the player during navigation, and using a pasted URL while miniplayer is active.
 - Confirm the extra playback row is gone and its controls remain accessible through the Playback options menu and keyboard shortcuts.
+
+- On a slow initial page load, confirm theatre mode still activates when the player controls become interactive. Startup attempts should stop after the mode is confirmed or after ten seconds; manually switching to default view afterward must remain possible.

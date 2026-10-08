@@ -55,7 +55,7 @@ Source files are in Sources/ytZoom. Developers with a compatible Swift toolchain
 - WebKit loads the standard YouTube website in one persistent web view.
 - Standard WebKit website storage preserves cookies and preferences.
 - Native state changes are coalesced per main queue turn; unchanged values do not trigger UI publication.
-- Playback integration uses media and navigation events without polling. Watch-page controls use a filtered discovery observer for at most 10 seconds, plus a scoped observer for the chat collapse control.
+- Playback integration uses media and navigation events without polling. Watch-page controls use a filtered discovery observer and bounded startup retries for at most 10 seconds, confirming the requested layout before stopping. Scoped attribute observation handles reused player elements; only chat observation remains after the layout is confirmed.
 - One document-end script applies saved settings, and mode changes update it for future navigation.
 - Teardown stops playback/loading and removes KVO, notification observers, and user scripts.
 

@@ -34,7 +34,7 @@ function page(options = {}) {
   }
   const root = element();
   const app = element();
-  const watch = element([['video-id', 'first'], ...(options.theater ? ['theater'] : [])]);
+  const watch = element([['video-id', 'first'], ...(options.theater ? ['theater'] : []), ...(options.hidden ? ['hidden'] : [])]);
   let mini = options.mini ?? false;
   let hasWatch = true, hasChat = options.chat ?? true, hasControls = options.controls ?? true;
   let hasChatButton = options.chatButton ?? true;
@@ -53,8 +53,20 @@ function page(options = {}) {
       return null;
     }
   };
+  let theatreRequests = 0;
+  watch.dispatchEvent = event => {
+    assert.equal(event.type, 'yt-set-theater-mode-enabled');
+    assert.equal(event.detail.enabled, true);
+    theatreRequests++;
+    if (options.eventTheatre && theatreRequests >= options.eventTheatre) watch.toggleAttribute('theater', true);
+  };
   const sizeButton = { disabled: false, clicks: 0, getAttribute: () => null,
-    click() { this.clicks++; watch.toggleAttribute('theater', true); } };
+    click() {
+      this.clicks++;
+      if (!options.asyncTheatre && this.clicks > (options.ignoredClicks ?? 0)) {
+        watch.toggleAttribute('theater', !watch.hasAttribute('theater'));
+      }
+    } };
   const miniButton = { disabled: false, clicks: 0, getAttribute: () => null,
     click() { this.clicks++; mini = true; } };
   const document = {
@@ -78,8 +90,9 @@ function page(options = {}) {
     disconnect() { this.target = null; }
   }
   const context = vm.createContext({ window, document, location, URL, MutationObserver: Observer,
+    CustomEvent: class { constructor(type, options) { this.type = type; Object.assign(this, options); } },
     sessionStorage: { getItem: key => storage.get(key) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: k => storage.delete(k) },
-    setTimeout: callback => { const key = Symbol(); timers.set(key, callback); return key; },
+    setTimeout: (callback, delay) => { const key = Symbol(); timers.set(key, { callback, delay }); return key; },
     clearTimeout: key => timers.delete(key)
   });
   const inject = () => { vm.runInContext(bootstrap, context); vm.runInContext(source, context); };
@@ -94,7 +107,16 @@ function page(options = {}) {
     setLocation: navigate,
     next(id = 'second') { emit('yt-navigate-start'); navigate(id); watch.setAttribute('video-id', id); emit('yt-navigate-finish'); },
     clickChat() { emit('click', { isTrusted: true, target: chatButton }); chatButton.click(); },
-    expireDiscovery() { for (const callback of [...timers.values()]) callback(); }
+    advanceLayout() {
+      for (const [key, timer] of [...timers]) {
+        if (timer.delay === 500) { timers.delete(key); timer.callback(); }
+      }
+    },
+    expireDiscovery() {
+      for (const [key, timer] of [...timers]) {
+        if (timer.delay === 10000) { timers.delete(key); timer.callback(); }
+      }
+    }
   };
 }
 
@@ -169,6 +191,7 @@ test('delayed player controls and mismatched old player IDs wait for readiness',
   p.setControls(true); p.watch.setAttribute('video-id', 'old'); p.emit('loadedmetadata');
   assert.equal(p.sizeButton.clicks, 0);
   p.watch.setAttribute('video-id', 'first'); p.notify(p.document.body, 'childList');
+  p.advanceLayout();
   assert.equal(p.sizeButton.clicks, 1);
 });
 test('discovery expires without ongoing polling, and teardown disconnects all observers', () => {
@@ -192,4 +215,50 @@ test('chat policy and player changes are restricted to YouTube domains', () => {
     const p = page({ host }); assert.equal(p.window.__ytzoomWatch, undefined);
     assert.equal(p.styles.size, 0); assert.equal(p.observers.length, 0);
   }
+});
+
+test('ignored early click is not success; idempotent theatre request retries until confirmed', () => {
+  const p = page({ ignoredClicks: 1, eventTheatre: 1 });
+  assert.equal(p.sizeButton.clicks, 1);
+  assert.equal(p.watch.hasAttribute('theater'), false);
+  p.advanceLayout();
+  assert.equal(p.watch.hasAttribute('theater'), true);
+  assert.equal(p.sizeButton.clicks, 1);
+  assert.equal(p.timers.size, 0);
+});
+test('a native button whose handler binds late is retried after initialization', () => {
+  const p = page({ ignoredClicks: 1 });
+  for (let i = 0; i < 4; i++) p.advanceLayout();
+  assert.equal(p.watch.hasAttribute('theater'), true);
+  assert.equal(p.sizeButton.clicks, 2);
+  assert.equal(p.timers.size, 0);
+});
+test('asynchronous theatre confirmation cancels retries before another toggle', () => {
+  const p = page({ asyncTheatre: true });
+  assert.equal(p.watch.hasAttribute('theater'), false);
+  p.watch.toggleAttribute('theater', true); p.notify(p.watch);
+  p.advanceLayout();
+  assert.equal(p.sizeButton.clicks, 1);
+  assert.equal(p.timers.size, 0);
+  p.watch.toggleAttribute('theater', false); p.emit('loadedmetadata');
+  assert.equal(p.sizeButton.clicks, 1);
+});
+test('reused hidden watch container is retried when attributes change without new DOM nodes', () => {
+  const p = page({ hidden: true }); assert.equal(p.sizeButton.clicks, 0);
+  p.watch.toggleAttribute('hidden', false); p.notify(p.watch); p.advanceLayout();
+  assert.equal(p.watch.hasAttribute('theater'), true);
+});
+test('startup retries are bounded and navigation teardown cancels pending work', () => {
+  const p = page({ controls: false });
+  for (let i = 0; i < 25; i++) p.advanceLayout();
+  p.expireDiscovery();
+  assert.equal(p.timers.size, 0);
+  assert.equal(p.observers.filter(o => o.target).length, 1); // Chat only.
+  const next = page({ asyncTheatre: true });
+  next.emit('yt-navigate-start');
+  assert.equal(next.timers.size, 0);
+  assert.equal(next.observers.filter(o => o.target).length, 0);
+});
+test('bootstrap seeds the native wide-player preference', () => {
+  const p = page(); assert.match(p.document.cookie, /^wide=1;/);
 });

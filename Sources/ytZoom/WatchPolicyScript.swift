@@ -1,10 +1,13 @@
 // A bounded discovery observer handles YouTube's asynchronously mounted controls.
-// Once settled, only the chat's collapsed attribute is observed; there is no polling.
+// Startup retries are bounded and stop after the player confirms its mode.
+// Once settled, only the chat collapse control is observed.
 enum WatchPolicyScript {
     static let bootstrap = """
     (() => {
       const host = location.hostname.toLowerCase();
       if (!(host === 'youtube.com' || host.endsWith('.youtube.com'))) return;
+      // Seed YouTube's own wide-player preference before its client initializes.
+      document.cookie = 'wide=1; path=/; SameSite=Lax; Secure';
       const root = document.documentElement;
       if (!root || document.getElementById('ytzoom-chat-policy')) return;
       const style = document.createElement('style');
@@ -25,6 +28,8 @@ enum WatchPolicyScript {
       let currentID = null, preferMini = null, clickedMini = null, layoutApplied = false;
       let chat = null, chatObserver = null, chatAllowed = false, collapsePending = false;
       let discovery = null, discoveryTimer = null;
+      let layoutTarget = null, layoutObserver = null, layoutTimer = null, layoutAttempts = 0;
+      let applyingLayout = false, layoutRequests = 0;
       try {
         const previous = JSON.parse(sessionStorage.getItem('ytzoom.previousPlayer') || 'null');
         sessionStorage.removeItem('ytzoom.previousPlayer');
@@ -36,6 +41,12 @@ enum WatchPolicyScript {
         discovery = null;
         if (discoveryTimer !== null) clearTimeout(discoveryTimer);
         discoveryTimer = null;
+      };
+      const stopLayout = () => {
+        if (layoutObserver) layoutObserver.disconnect();
+        layoutObserver = null; layoutTarget = null;
+        if (layoutTimer !== null) clearTimeout(layoutTimer);
+        layoutTimer = null;
       };
       const releaseChat = () => {
         if (chatObserver) chatObserver.disconnect();
@@ -63,28 +74,54 @@ enum WatchPolicyScript {
         collapseChat();
       };
       const applyLayout = () => {
-        if (layoutApplied || !videoID()) return;
-        const watch = document.querySelector('ytd-watch-flexy');
-        if (!watch || watch.hasAttribute('hidden')) return;
-        const renderedID = watch.getAttribute('video-id');
-        if (renderedID && renderedID !== videoID()) return;
-        // Keep explicit fullscreen/miniplayer choices made by the user.
-        if (document.fullscreenElement || watch.hasAttribute('fullscreen') || isMini()) {
-          layoutApplied = true; return;
-        }
-        if (preferMini !== true && watch.hasAttribute('theater')) {
-          layoutApplied = true; return;
-        }
-        const selector = preferMini === true ? '.ytp-miniplayer-button' : '.ytp-size-button';
-        const button = document.querySelector('#movie_player ' + selector);
-        if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return;
-        layoutApplied = true; // Mark before click: YouTube may synchronously navigate.
-        button.click();
+        if (layoutApplied || !videoID() || applyingLayout) return;
+        applyingLayout = true;
+        try {
+          const watch = document.querySelector('ytd-watch-flexy');
+          if (watch && watch !== layoutTarget) {
+            if (layoutObserver) layoutObserver.disconnect();
+            layoutTarget = watch;
+            layoutObserver = new MutationObserver(reconcile);
+            layoutObserver.observe(watch, { attributes: true,
+              attributeFilter: ['hidden', 'video-id', 'theater', 'fullscreen'] });
+          }
+          const renderedID = watch && watch.getAttribute('video-id');
+          const ready = watch && !watch.hasAttribute('hidden') && (!renderedID || renderedID === videoID());
+          if (ready) {
+            if (document.fullscreenElement || watch.hasAttribute('fullscreen') || isMini() ||
+                (preferMini !== true && watch.hasAttribute('theater'))) {
+              layoutApplied = true;
+            } else if (layoutTimer === null && layoutAttempts < 20) {
+              const selector = preferMini === true ? '.ytp-miniplayer-button' : '.ytp-size-button';
+              const button = document.querySelector('#movie_player ' + selector);
+              if (button && !button.disabled && button.getAttribute('aria-disabled') !== 'true') {
+                // Leave time for async confirmation before trying another toggle.
+                if (preferMini === true || layoutRequests % 4 === 0) {
+                  button.click();
+                } else {
+                  watch.dispatchEvent(new CustomEvent('yt-set-theater-mode-enabled',
+                    { detail: { enabled: true }, bubbles: true }));
+                }
+                layoutRequests++;
+                layoutApplied = preferMini === true ? isMini() : watch.hasAttribute('theater');
+              }
+            }
+          }
+          if (layoutApplied) {
+            stopLayout();
+          } else if (layoutTimer === null && layoutAttempts < 20) {
+            layoutAttempts++;
+            layoutTimer = setTimeout(() => { layoutTimer = null; reconcile(); }, 500);
+          } else if (layoutAttempts >= 20) {
+            stopLayout();
+          }
+        } finally { applyingLayout = false; }
       };
       const reconcile = () => {
         const id = videoID();
         if (id !== currentID) {
-          currentID = id; layoutApplied = false;
+          stopLayout();
+          currentID = id; layoutApplied = false; layoutAttempts = 0; layoutRequests = 0;
           chatAllowed = false; collapsePending = false;
           gateChat();
         }
@@ -123,16 +160,17 @@ enum WatchPolicyScript {
       document.addEventListener('yt-navigate-start', () => {
         preferMini = clickedMini === null ? isMini() : clickedMini;
         clickedMini = null;
-        stopDiscovery(); releaseChat();
+        stopDiscovery(); stopLayout(); releaseChat();
         chatAllowed = false; gateChat();
       });
       document.addEventListener('yt-navigate-finish', discover);
       document.addEventListener('yt-player-updated', reconcile);
       document.addEventListener('yt-page-data-updated', reconcile);
       document.addEventListener('loadedmetadata', reconcile, true);
+      document.addEventListener('play', reconcile, true);
       window.addEventListener('pagehide', () => {
         try { sessionStorage.setItem('ytzoom.previousPlayer', JSON.stringify({ id: currentID, mini: isMini() })); } catch (_) {}
-        stopDiscovery(); releaseChat();
+        stopDiscovery(); stopLayout(); releaseChat();
       });
       // Restore observers if WebKit returns this document from its history cache.
       window.addEventListener('pageshow', event => { if (event.persisted) discover(); });
