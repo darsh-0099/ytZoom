@@ -131,7 +131,7 @@ enum WatchPolicyScript {
       const discover = () => {
         stopDiscovery();
         reconcile();
-        if (layoutApplied && chat) return;
+        if (!videoID() || (layoutApplied && chat)) return;
         const root = document.querySelector('ytd-app') || document.body;
         if (!root) return;
         discovery = new MutationObserver(records => {

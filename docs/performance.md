@@ -22,7 +22,7 @@ Repeat each scenario at least three times and report the median and range. This 
 - Open Playback options (the ellipsis button) and change speed, then navigate within YouTube to another video. The saved speed applies to the new player. Confirm normal playback, ads, fullscreen, and live streams still work.
 - Seek near the start/end of an ordinary video and the edge of a live DVR window. Confirm seeking stays inside the seekable range.
 - Switch Balanced → Eco → Compatibility while a preview is playing. Compatibility removes injected styles and allows future previews; stopped previews are not forcibly restarted.
-- Unload during playback and during navigation. Confirm the page is removed, audio stops, and no stale navigation errors appear. Resume, search, and Home should load the expected address. Cookies remain available; back/forward history and playback position reset.
+- Unload during playback and during navigation. Confirm the page is removed, audio stops, and no stale navigation errors appear. Resume, search, and Home should load the expected address. Cookies remain available and on-demand video position restores paused; back/forward history resets.
 - Close/reopen the window and quit/relaunch. Confirm stored mode, background option, and speed persist. The app offers one browsing window.
 - Visit a Google sign-in page or an unrelated address. Playback scripts should have no effect there.
 
@@ -32,3 +32,16 @@ Repeat each scenario at least three times and report the median and range. This 
 - Confirm the extra playback row is gone and its controls remain accessible through the Playback options menu and keyboard shortcuts.
 
 - On a slow initial page load, confirm theatre mode still activates when the player controls become interactive. Startup attempts should stop after the mode is confirmed or after ten seconds; manually switching to default view afterward must remain possible.
+
+## Version 0.2.0 checks
+
+- With background pause disabled, hide while playing for longer than the configured idle timeout. Playback must continue and the page must remain loaded, including while buffering or playing media in another frame.
+- Pause playback, hide the window, and wait for the timeout. It should unload once. Unhide/deminimize and confirm the saved on-demand position restores paused; manual unload should wait for the Resume control.
+- Disable idle unloading or bring the window back before the deadline. Confirm pending work cancels. Repeat during navigation, loading, and window closure to check that stale callbacks cannot unload a new page.
+- Leave an unfinished comment or open chat before hiding. The automatic unload guard should preserve the page. Login and other external pages must never automatically unload.
+- Enable Pause when hidden, then hide and restore rapidly. Media must not restart automatically, and explicit Play must work after return.
+- Switch modes rapidly while preview rules load. Compatibility must remove the filter. Standard thumbnails, advertisements, watch videos, and live streams must still load.
+- Try Focus viewing and reverse it. Live chat's native Show control remains available; recommendations/comments return when the option is off.
+- Compare Home navigation with a reload. When the native logo link is available, Home should keep YouTube's existing client running. With the integration unavailable, the fallback should load Home without overriding a newer navigation.
+
+In Instruments, record Points of Interest alongside Time Profiler and Allocations. The app emits Navigation intervals and Page unloaded/Page resumed events, without browsing URLs. Use these markers to align startup, navigation, and memory measurements. No live before/after device resource results have been collected for this revision; the committed settings-operation fixture records structural script-work reductions only.

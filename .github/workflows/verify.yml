@@ -19,6 +19,8 @@ jobs:
           node-version: '22'
       - name: Verify playback integration
         run: node --test Tests/*.test.mjs
+      - name: Verify native lifecycle policies and WebKit integration
+        run: swift test --configuration release --arch x86_64
       - name: Compile native app
         run: |
           set -euo pipefail
@@ -41,8 +43,8 @@ jobs:
             <key>CFBundleName</key><string>ytZoom</string>
             <key>CFBundleDisplayName</key><string>ytZoom</string>
             <key>CFBundlePackageType</key><string>APPL</string>
-            <key>CFBundleShortVersionString</key><string>0.1.1</string>
-            <key>CFBundleVersion</key><string>2</string>
+            <key>CFBundleShortVersionString</key><string>0.2.0</string>
+            <key>CFBundleVersion</key><string>3</string>
             <key>LSMinimumSystemVersion</key><string>13.0</string>
             <key>LSApplicationCategoryType</key><string>public.app-category.video</string>
             <key>NSHighResolutionCapable</key><true/>

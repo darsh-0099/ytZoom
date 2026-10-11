@@ -6,10 +6,16 @@ import test from 'node:test';
 // Execute the exact JavaScript shipped in the Swift literal, with a small media/DOM fixture.
 const swift = readFileSync(new URL('../Sources/ytZoom/PlaybackScript.swift', import.meta.url), 'utf8');
 const source = swift.match(/static let source = """\n([\s\S]*?)\n    """/)[1];
-function page(host = 'www.youtube.com') {
+function page(host = 'www.youtube.com', options = {}) {
   const listeners = new Map(), styles = new Map();
+  const stats = { queries: 0, previewScans: 0, styleWrites: 0, appearanceWrites: 0 };
+  const messages = [];
+  let currentID = options.videoID ?? 'first';
+  const mainContainer = {};
   const video = {
-    paused: false, playbackRate: 1, currentTime: 25, pauses: 0,
+    paused: false, ended: false, isConnected: true, duration: 100,
+    closest(selector) { return selector === '#movie_player' ? mainContainer : null; },
+    playbackRate: 1, currentTime: 25, pauses: 0,
     seekable: { length: 1, start: () => 0, end: () => 100 },
     pause() { this.paused = true; this.pauses++; },
     play() { this.paused = false; return Promise.resolve(); }
@@ -17,25 +23,40 @@ function page(host = 'www.youtube.com') {
   let currentVideo = video;
   const document = {
     hidden: false,
-    documentElement: { style: {}, toggleAttribute() {} },
-    querySelector: () => currentVideo,
-    querySelectorAll: () => [],
+    documentElement: { style: {}, dark: false,
+      hasAttribute(name) { return name === 'dark' && this.dark; },
+      toggleAttribute(_, value) { this.dark = value; stats.appearanceWrites++; } },
+    querySelector: selector => {
+      stats.queries++;
+      return selector === 'ytd-watch-flexy' ? { getAttribute: () => currentID } : currentVideo;
+    },
+    querySelectorAll: selector => {
+      if (selector === 'video, audio') return currentVideo ? [currentVideo, ...(options.otherMedia ?? [])] : [];
+      stats.previewScans++; return [];
+    },
     getElementById: id => styles.get(id),
-    createElement: () => ({ textContent: '', remove() { styles.delete(this.id); } }),
+    createElement: () => ({ _text: '',
+      get textContent() { return this._text; },
+      set textContent(value) { this._text = value; stats.styleWrites++; },
+      remove() { styles.delete(this.id); } }),
     head: { appendChild(style) { styles.set(style.id, style); } },
     addEventListener(name, handler) {
       const handlers = listeners.get(name) ?? [];
       handlers.push(handler); listeners.set(name, handlers);
     }
   };
-  const window = {};
-  const context = vm.createContext({ window, document, location: { hostname: host } });
+  const window = { __ytzoomResume: options.restore,
+    webkit: { messageHandlers: { ytzoomLifecycle: { postMessage: body => messages.push(body) } } } };
+  const location = { hostname: host, href: `https://${host}/watch?v=${currentID}` };
+  const context = vm.createContext({ window, document, location, URL });
   vm.runInContext(source, context);
-  return { window, document, video, styles, listeners,
+  return { window, document, video, styles, listeners, stats, messages,
+    setVideoID: id => { currentID = id; location.href = `https://${host}/watch?v=${id}`; },
     configure: settings => window.__ytzoom.configure({ css: '', rate: 1, pauseWhenHidden: false, ...settings }),
     command: name => window.__ytzoom.command(name),
     emit: (name, target = currentVideo) => listeners.get(name)?.forEach(fn => fn({ target })),
-    replaceVideo: next => { currentVideo = next; },
+    replaceVideo: next => { if (currentVideo) currentVideo.isConnected = false;
+      currentVideo = next; if (next) next.isConnected = true; },
     reinject: () => vm.runInContext(source, context)
   };
 }
@@ -48,7 +69,7 @@ test('restricts page integration to YouTube hosts', () => {
 });
 test('installs listeners once and never starts background timers', () => {
   const p = page(); p.reinject();
-  assert.equal(p.listeners.size, 4);
+  assert.equal(p.listeners.size, 8);
   for (const handlers of p.listeners.values()) assert.equal(handlers.length, 1);
   assert.doesNotMatch(source, /setInterval|setTimeout|MutationObserver/);
 });
@@ -126,4 +147,82 @@ test('Balanced/Eco pauses existing and newly playing thumbnail previews', () => 
   p.configure({ suppressPreviews: false }); p.emit('play', preview);
   assert.equal(preview.pauses, 2);
   assert.equal(p.video.pauses, 0);
+});
+
+test('unchanged settings perform zero DOM queries, preview scans, or appearance writes', () => {
+  const p = page(); const settings = { css: 'test', rate: 1.5, suppressPreviews: true };
+  p.configure(settings); const before = { ...p.stats };
+  for (let i = 0; i < 1000; i++) p.configure(settings);
+  assert.deepEqual(p.stats, before);
+});
+test('speed-only changes do not rebuild styling or rescan previews', () => {
+  const p = page(); p.configure({ css: 'test', suppressPreviews: true });
+  const before = { ...p.stats };
+  p.configure({ css: 'test', suppressPreviews: true, rate: 2 });
+  assert.equal(p.stats.previewScans, before.previewScans);
+  assert.equal(p.stats.styleWrites, before.styleWrites);
+  assert.equal(p.stats.appearanceWrites, before.appearanceWrites);
+});
+test('connected main-player references are reused across media events', () => {
+  const p = page(); p.configure({}); const queries = p.stats.queries;
+  for (let i = 0; i < 1000; i++) p.emit('canplay');
+  assert.equal(p.stats.queries, queries);
+});
+test('playback messages are emitted only on a state change', () => {
+  const p = page(); p.configure({});
+  for (let i = 0; i < 100; i++) p.emit('play');
+  assert.equal(p.messages.length, 1);
+  p.video.paused = true; p.emit('pause'); p.emit('pause');
+  assert.equal(p.messages.length, 2);
+  assert.equal(p.messages[1].playing, false);
+});
+test('snapshot detects other media and buffering before idle unloading', () => {
+  const other = { paused: false, ended: false, closest: () => null };
+  const p = page('www.youtube.com', { otherMedia: [other] }); p.video.paused = true;
+  assert.equal(p.window.__ytzoom.snapshot().playing, true);
+  other.paused = true; assert.equal(p.window.__ytzoom.snapshot().playing, false);
+  p.video.paused = false; assert.equal(p.window.__ytzoom.snapshot().playing, true);
+});
+test('saved position is restored paused, and explicit play remains usable', () => {
+  const p = page('www.youtube.com', { restore: { videoID: 'first', time: 60, paused: true } });
+  p.configure({}); assert.equal(p.video.currentTime, 60); assert.equal(p.video.paused, true);
+  p.video.paused = false; p.emit('play'); assert.equal(p.video.paused, true);
+  p.command('toggle'); assert.equal(p.video.paused, false);
+});
+test('restore waits for a seekable range and does not seek advertisements', () => {
+  const p = page('www.youtube.com', { restore: { videoID: 'first', time: 60, paused: true } });
+  p.video.seekable.length = 0; p.configure({}); assert.equal(p.video.currentTime, 25);
+  p.video.seekable.length = 1;
+  p.video.closest = selector => selector === '.ytp-ad-showing' ? {} : selector === '#movie_player' ? {} : null;
+  p.emit('canplay'); assert.equal(p.video.currentTime, 25);
+  p.video.closest = selector => selector === '#movie_player' ? {} : null;
+  p.emit('canplay'); assert.equal(p.video.currentTime, 60);
+});
+test('saved timestamp does not affect a different video', () => {
+  const p = page('www.youtube.com', { restore: { videoID: 'previous', time: 60, paused: true } });
+  p.configure({}); assert.equal(p.video.currentTime, 25); assert.equal(p.video.paused, false);
+});
+test('Focus viewing is independently reversible in Compatibility mode', () => {
+  const p = page(); p.configure({ css: '', focusViewing: true });
+  assert.match(p.styles.get('ytzoom-style').textContent, /#related/);
+  p.configure({ css: '', focusViewing: false }); assert.equal(p.styles.size, 0);
+});
+
+test('unsubmitted comments prevent automatic idle unloading', () => {
+  const p = page(); p.video.paused = true;
+  const originalQuery = p.document.querySelectorAll;
+  p.document.querySelectorAll = selector => selector.startsWith('textarea')
+    ? [{ closest: () => null, isContentEditable: true, textContent: 'unfinished comment' }]
+    : originalQuery(selector);
+  assert.equal(p.window.__ytzoom.snapshot().hasDraft, true);
+});
+
+test('Home uses the existing native YouTube link, with an explicit fallback if missing', () => {
+  const p = page(); const originalQuery = p.document.querySelector;
+  assert.equal(p.window.__ytzoom.goHome(), false);
+  let clicks = 0;
+  p.document.querySelector = selector => selector.startsWith('ytd-masthead')
+    ? { href: 'https://www.youtube.com/', click: () => clicks++ } : originalQuery(selector);
+  assert.equal(p.window.__ytzoom.goHome(), true);
+  assert.equal(clicks, 1);
 });
