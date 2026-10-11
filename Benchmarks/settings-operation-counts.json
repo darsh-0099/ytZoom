@@ -1,0 +1,16 @@
+{
+  "scenario": "1000 identical settings updates after initialization",
+  "scope": "DOM/media fixture operation counts; not live browser performance",
+  "current": {
+    "playerQueries": 0,
+    "previewScans": 0,
+    "styleLookups": 0,
+    "appearanceChanges": 0
+  },
+  "baseline": {
+    "playerQueries": 2000,
+    "previewScans": 1000,
+    "styleLookups": 1000,
+    "appearanceChanges": 1000
+  }
+}

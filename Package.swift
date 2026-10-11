@@ -5,5 +5,8 @@ let package = Package(
     name: "ytZoom",
     platforms: [.macOS(.v13)],
     products: [.executable(name: "ytZoom", targets: ["ytZoom"])],
-    targets: [.executableTarget(name: "ytZoom", path: "Sources/ytZoom")]
+    targets: [
+        .executableTarget(name: "ytZoom", path: "Sources/ytZoom"),
+        .testTarget(name: "ytZoomTests", dependencies: ["ytZoom"], path: "Tests/ytZoomTests")
+    ]
 )
