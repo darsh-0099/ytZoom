@@ -8,6 +8,7 @@ The project explores whether avoiding a full standalone browser framework and re
 
 - Native macOS window with history, home, reload, URL/search field, and system-browser handoff
 - One app window and one WKWebView, with saved website data and cookies
+- App fullscreen toggle in the toolbar (Control-Command-F), plus native YouTube player fullscreen with its fullscreen button or F while the player is focused; Escape exits player fullscreen
 - Unload/resume preserves on-demand video position and resumes paused
 - Hidden idle YouTube pages unload after 5 minutes, configurable to 15/30 minutes or Never
 - Active playback, unfinished comments, and open chat prevent automatic unloading
@@ -78,6 +79,8 @@ Run the dependency-free playback regression tests with Node.js 22 or newer:
     node --test Tests/*.test.mjs
 
 The tests execute the JavaScript embedded in the Swift source and cover preview pausing, style cleanup, speed persistence across media replacement, background pause behavior, seeking boundaries, chat consent, theatre/miniplayer transitions, delayed controls, and script lifecycle. They use DOM/media fixtures; they do not validate the live YouTube website or native window behavior. The Verify workflow also runs Swift tests for idle/restore policies, compiles the preview rule in WebKit, and executes playback integration inside a native WKWebView fixture before packaging the Intel app.
+
+Native fullscreen checks verify that the Fullscreen API is enabled in WKWebView, window state follows the app window, and closing WebKit's separate fullscreen window does not stop playback in the app. Actual display transitions and live YouTube controls require device checks.
 
 Run native checks with `swift test --configuration release --arch x86_64` on a compatible macOS development host.
 

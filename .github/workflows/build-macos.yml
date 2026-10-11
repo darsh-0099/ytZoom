@@ -48,8 +48,8 @@ jobs:
             <key>CFBundleName</key><string>ytZoom</string>
             <key>CFBundleDisplayName</key><string>ytZoom</string>
             <key>CFBundlePackageType</key><string>APPL</string>
-            <key>CFBundleShortVersionString</key><string>0.2.0</string>
-            <key>CFBundleVersion</key><string>3</string>
+            <key>CFBundleShortVersionString</key><string>0.2.1</string>
+            <key>CFBundleVersion</key><string>4</string>
             <key>LSMinimumSystemVersion</key><string>13.0</string>
             <key>LSApplicationCategoryType</key><string>public.app-category.video</string>
             <key>NSHighResolutionCapable</key><true/>
@@ -73,6 +73,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if ! gh release view v0.2.0 >/dev/null 2>&1; then
-            gh release create v0.2.0 dist/ytZoom-macOS-Intel.zip --target "$GITHUB_SHA" --title "ytZoom v0.2.0" --notes "Performance update with idle unloading, position restoration, background media suspension, cached scripts, and preview filtering (Intel macOS 13+). Ad-hoc signed and not notarized. See the README for installation and limitations."
+          if ! gh release view v0.2.1 >/dev/null 2>&1; then
+            gh release create v0.2.1 dist/ytZoom-macOS-Intel.zip --target "$GITHUB_SHA" --title "ytZoom v0.2.1" --notes "Native app and YouTube player fullscreen, plus performance improvements, idle unloading, and position restoration (Intel macOS 13+). Ad-hoc signed and not notarized. See the README for installation and limitations."
           fi

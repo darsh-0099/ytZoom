@@ -17,6 +17,7 @@ final class WebKitIntegrationTests: XCTestCase {
         let done = expectation(description: "Native script fixture")
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
+        WindowFullscreen.enablePlayer(in: configuration)
         configuration.userContentController.addUserScript(WKUserScript(
             source: PlaybackScript.source + "\nwindow.__ytzoom?.configure({css:'body{color:red}',rate:1.5,darkMode:true});",
             injectionTime: .atDocumentEnd, forMainFrameOnly: true))
@@ -30,6 +31,7 @@ final class WebKitIntegrationTests: XCTestCase {
               const style = document.getElementById('ytzoom-style');
               for(let i=0;i<1000;i++) window.__ytzoom.configure({css:'body{color:red}',rate:1.5,darkMode:true});
               return {dark:document.documentElement.hasAttribute('dark'),
+                      fullscreenEnabled:document.fullscreenEnabled,
                       stableStyle:style===document.getElementById('ytzoom-style'),
                       speed:document.querySelector('video').playbackRate,
                       playing:window.__ytzoom.snapshot().playing};
@@ -38,6 +40,7 @@ final class WebKitIntegrationTests: XCTestCase {
                 XCTAssertNil(error)
                 let data = result as? [String: Any]
                 XCTAssertEqual(data?["dark"] as? Bool, true)
+                XCTAssertEqual(data?["fullscreenEnabled"] as? Bool, true)
                 XCTAssertEqual(data?["stableStyle"] as? Bool, true)
                 XCTAssertEqual(data?["speed"] as? Double, 1.5)
                 XCTAssertEqual(data?["playing"] as? Bool, false)

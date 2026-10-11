@@ -127,11 +127,3 @@ final class BackgroundLifecycle {
         DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(idleMinutes * 60), execute: work)
     }
 }
-
-final class BrowserWebView: WKWebView {
-    var windowChanged: ((NSWindow?) -> Void)?
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        windowChanged?(window)
-    }
-}

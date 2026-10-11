@@ -101,6 +101,7 @@ final class BrowserModel: ObservableObject {
     private var unloadTimeout: DispatchWorkItem?
     weak var webView: WKWebView?
     lazy var lifecycle = BackgroundLifecycle(browser: self)
+    let fullscreen = WindowFullscreen()
 
     func update(from view: WKWebView) {
         guard webView === view, !updatePending else { return }
@@ -317,6 +318,8 @@ struct BrowserWindow: View {
 
                 playbackMenu
 
+                FullscreenButton(fullscreen: browser.fullscreen)
+
                 Button { darkMode.toggle() } label: {
                     Image(systemName: darkMode ? "sun.max" : "moon")
                 }
@@ -381,6 +384,7 @@ struct BrowserWindow: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
         }
+        .background(BrowserWindowAnchor(browser: browser).frame(width: 0, height: 0))
         .preferredColorScheme(darkMode ? .dark : .light)
         .onAppear { configureLifecycle() }
         .onChange(of: pauseWhenHidden) { _ in configureLifecycle() }
@@ -446,6 +450,7 @@ struct YouTubeWebView: NSViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        WindowFullscreen.enablePlayer(in: configuration)
 
         context.coordinator.mode = mode
         context.coordinator.playbackRate = playbackRate
@@ -454,8 +459,7 @@ struct YouTubeWebView: NSViewRepresentable {
         context.coordinator.focusViewing = focusViewing
         configuration.userContentController.add(WeakScriptHandler(context.coordinator), name: "ytzoomLifecycle")
         context.coordinator.installScripts(in: configuration.userContentController)
-        let view = BrowserWebView(frame: .zero, configuration: configuration)
-        view.windowChanged = { [weak model = browser] window in model?.lifecycle.attach(to: window) }
+        let view = WKWebView(frame: .zero, configuration: configuration)
         view.appearance = NSAppearance(named: darkMode ? .darkAqua : .aqua)
         view.navigationDelegate = context.coordinator
         view.uiDelegate = context.coordinator
@@ -490,7 +494,6 @@ struct YouTubeWebView: NSViewRepresentable {
         view.stopLoading()
         coordinator.endNavigationTrace()
         coordinator.observations.removeAll()
-        (view as? BrowserWebView)?.windowChanged = nil
         if coordinator.browser.webView === view {
             coordinator.browser.cancelUnload()
             coordinator.browser.lifecycle.detached()
